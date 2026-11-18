@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理员登录 · 同事互评</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/admin.js"></script>
+</head>
+<body>
+  <div class="house admin-house">
+    <div class="scenery" aria-hidden="true">
+      <div class="scene is-current" data-scene="living"><div class="scene-image"></div><div class="scene-image scene-edge"></div></div>
+      <div class="scene-shade"></div>
+    </div>
+    <header class="entry-header">
+      <a class="glass scene-action admin-home" href="/#living">返回同事互评</a>
+      <div class="admin-controls" hidden>
+        <span class="account-name"></span>
+        <button class="glass scene-action admin-logout" type="button">退出后台</button>
+      </div>
+    </header>
+
+    <main class="auth-stage admin-stage">
+      <section class="scene-card auth-card" id="admin-login" aria-labelledby="admin-login-title" hidden>
+        <h1 id="admin-login-title">管理员登录</h1>
+        <p class="auth-description">请输入管理员账号和密码。</p>
+        <form class="account-form" id="admin-login-form">
+          <label class="setup-name" hidden>显示名称<input name="name" autocomplete="name" maxlength="40"></label>
+          <label>管理员账号<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required></label>
+          <label for="admin-password">管理员密码</label>
+          <div class="auth-password">
+            <input id="admin-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+            <button class="password-visibility" type="button" aria-label="显示密码" aria-controls="admin-password" aria-pressed="false">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m3 3 18 18"/></svg>
+            </button>
+          </div>
+          <div class="scene-actions"><button class="glass scene-action feedback-submit" type="submit">登录后台</button></div>
+        </form>
+        <p class="account-status auth-status" role="status"></p>
+      </section>
+
+      <section class="scene-card admin-workspace" id="admin-workspace" aria-labelledby="admin-title" hidden>
+        <h1 id="admin-title">账号管理</h1>
+        <div class="admin-grid">
+          <section aria-labelledby="member-form-title">
+            <h2 id="member-form-title">创建同事账号</h2>
+            <form class="account-form" id="member-form">
+              <label>显示名称<input name="name" maxlength="40" required></label>
+              <label>登录名<input name="username" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" required></label>
+              <label><span class="member-password-label">初始密码（至少 12 字符）</span><input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+              <label class="member-active" hidden><input name="active" type="checkbox" checked>启用账号</label>
+              <div class="scene-actions">
+                <button class="glass scene-action feedback-submit" type="submit">创建账号</button>
+                <button class="glass scene-action member-cancel" type="button" hidden>取消编辑</button>
+              </div>
+              <p class="account-status" role="status"></p>
+            </form>
+          </section>
+          <section aria-labelledby="member-list-title">
+            <h2 id="member-list-title">同事账号</h2>
+            <p class="member-list-status" role="status"></p>
+            <div class="member-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

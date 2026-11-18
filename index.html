@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#29271f">
+  <meta name="description" content="在同一间房子里，认识你的同事，也了解大家眼中的你。">
+  <title>同事互评</title>
+  <link rel="preload" as="image" href="assets/living.webp">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="accounts.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21v-7h6v7"/></symbol>
+    <symbol id="icon-living" viewBox="0 0 24 24"><path d="M4 12V9a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3m-16 7v2m16-2v2M4 12a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3a2 2 0 0 0-4 0v1H6v-1a2 2 0 0 0-2-2Z"/></symbol>
+    <symbol id="icon-bedroom" viewBox="0 0 24 24"><path d="M3 18v3m18-3v3M3 13V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 18h18v-3a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2zM7 13V9h4v4m2 0V9h4v4"/></symbol>
+    <symbol id="icon-meeting" viewBox="0 0 24 24"><path d="M20.8 11.5a8.8 8.8 0 0 1-8.8 8.8 9 9 0 0 1-3.8-.8l-4.4 1.1 1.2-4.3a8.8 8.8 0 1 1 15.8-4.8Z"/><path d="M8.5 11.5h.01m3.49 0h.01m3.49 0h.01"/></symbol>
+    <symbol id="icon-yard" viewBox="0 0 24 24"><path d="M6 16c-4-4-1-8 3-9 3-.8 5-1 8-4 1.8 5 2.5 12-3 14a8 8 0 0 1-8-1ZM4 21c3-4 6-6 10-9"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-fullscreen" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v4m12-6h4a2 2 0 0 1 2 2v4M3 15v4a2 2 0 0 0 2 2h4m12-6v4a2 2 0 0 1-2 2h-4"/></symbol>
+    <symbol id="icon-exit-fullscreen" viewBox="0 0 24 24"><path d="M3 9h4a2 2 0 0 0 2-2V3m12 6h-4a2 2 0 0 1-2-2V3M9 21v-4a2 2 0 0 0-2-2H3m12 6v-4a2 2 0 0 1 2-2h4"/></symbol>
+  </svg>
+
+  <div class="house" data-room="living" data-session="checking">
+    <div class="scenery" aria-hidden="true">
+      <div class="scene is-current" data-scene="living"><div class="scene-image"></div><div class="scene-image scene-edge"></div></div>
+      <div class="scene" data-scene="bedroom"><div class="scene-image"></div><div class="scene-image scene-edge"></div></div>
+      <div class="scene" data-scene="meeting"><div class="scene-image"></div><div class="scene-image scene-edge"></div></div>
+      <div class="scene" data-scene="yard"><div class="scene-image"></div><div class="scene-image scene-edge"></div></div>
+      <div class="scene-shade"></div>
+    </div>
+
+    <header class="entry-header">
+      <div class="wordmark">
+        <span class="wordmark-emblem"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg></span>
+        <span class="wordmark-copy"><span class="wordmark-title">共事之间</span><span class="wordmark-note">让每一份用心，被看见</span></span>
+      </div>
+      <div class="account-controls">
+        <div class="account-dropdown" hidden>
+          <button class="glass scene-action account-toggle" type="button" aria-expanded="false" aria-controls="account-actions">
+            <span class="account-name"></span><span class="account-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="account-actions" id="account-actions" hidden>
+            <button class="glass scene-action account-logout" type="button">退出登录</button>
+          </div>
+        </div>
+        <button class="glass icon-button fullscreen-toggle" type="button" aria-label="全屏显示" title="全屏显示" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
+        </button>
+      </div>
+    </header>
+
+    <nav class="room-nav" aria-label="切换房间">
+      <a class="glass room-button" href="#living" data-go="living" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#icon-living"></use></svg><span>客厅</span></a>
+      <a class="glass room-button" href="#bedroom" data-go="bedroom"><svg class="icon" aria-hidden="true"><use href="#icon-bedroom"></use></svg><span>卧室</span></a>
+      <a class="glass room-button" href="#meeting" data-go="meeting"><svg class="icon" aria-hidden="true"><use href="#icon-meeting"></use></svg><span>私人会议室</span></a>
+      <a class="glass room-button" href="#yard" data-go="yard"><svg class="icon" aria-hidden="true"><use href="#icon-yard"></use></svg><span>户外庭院</span></a>
+    </nav>
+
+    <main class="room-stage">
+      <section class="scene-card scene-intro home-intro" aria-labelledby="home-title">
+        <h1 id="home-title"><span>了解同事，</span><span>也了解自己</span></h1>
+          <p><span>听听同事眼中的你，看见自己的闪光，也找到成长的方向。</span><span>写下共事中的真实感受，让彼此多一份理解与默契。</span></p>
+        <nav class="scene-actions" aria-label="主要功能">
+          <a class="glass scene-action" href="#bedroom" data-go="bedroom">看看我的成长</a>
+          <a class="glass scene-action" href="#meeting" data-go="meeting">说说共事感受</a>
+          <a class="glass scene-action" href="#yard" data-go="yard">认识身边同事</a>
+        </nav>
+      </section>
+
+      <section class="scene-card scene-intro room-copy" aria-labelledby="room-title" hidden>
+        <div class="room-caption" aria-live="polite">
+          <h1 id="room-title">看见优势，也找到方向</h1>
+          <dl class="room-description"></dl>
+        </div>
+        <div class="scene-actions">
+          <button class="glass scene-action open-room" type="button" aria-haspopup="dialog"><span>查看我的反馈</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></button>
+        </div>
+      </section>
+    </main>
+    <main class="auth-stage" id="auth-page" aria-labelledby="auth-title" hidden>
+      <section class="scene-card auth-card">
+        <h1 id="auth-title"><span class="auth-welcome">欢迎回到</span>共事之间</h1>
+        <p class="auth-description">在这里，听见彼此，也看见自己。</p>
+        <form class="account-form" id="auth-form">
+          <label>登录名<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required></label>
+          <label for="auth-password">密码</label>
+          <div class="auth-password">
+            <input id="auth-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+            <button class="password-visibility" type="button" aria-label="显示密码" aria-controls="auth-password" aria-pressed="false">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m3 3 18 18"/></svg>
+            </button>
+          </div>
+          <div class="scene-actions"><button class="glass scene-action feedback-submit" type="submit">进来坐坐</button></div>
+        </form>
+        <p class="account-status auth-status" role="status"></p>
+      </section>
+    </main>
+    <p class="visually-hidden" id="room-status" role="status"></p>
+  </div>
+
+  <dialog class="room-dialog" id="room-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-header">
+      <h2 id="dialog-title">我的反馈</h2>
+      <button class="glass icon-button close-dialog" type="button" aria-label="关闭" autofocus>
+        <svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg>
+      </button>
+    </div>
+    <section data-content="bedroom" hidden>
+      <p class="intro report-status" role="status">正在读取报告…</p>
+      <div class="scene-actions"><button class="glass scene-action report-generate" type="button" hidden>生成报告</button></div>
+      <div class="report-body" hidden>
+        <p class="report-summary"></p>
+        <div class="report-groups"></div>
+      </div>
+      <details class="feedback-optional report-ratings" hidden>
+        <summary>量表得分</summary>
+        <dl class="scores"></dl>
+      </details>
+      <section class="received-reviews" aria-labelledby="received-title" hidden>
+        <h3 id="received-title">收到的评价 <span class="received-count"></span></h3>
+        <div class="received-list"></div>
+      </section>
+    </section>
+    <section data-content="meeting" hidden>
+      <p class="intro">回想最近三个月直接合作过的事，写下你亲眼看到的行为。</p>
+      <form class="feedback" novalidate>
+        <div class="review-peer">
+          <label class="feedback-label" for="feedback-peer">评价对象</label>
+          <select id="feedback-peer" name="peer" required>
+            <option value="" disabled selected>选择一位同事</option>
+          </select>
+        </div>
+        <label class="feedback-label" for="feedback-note">文字反馈</label>
+        <p class="feedback-help" id="feedback-note-guide">说清当时的场景、对方做了什么、带来了什么影响。</p>
+        <textarea id="feedback-note" name="note" rows="4" maxlength="1200" aria-describedby="feedback-note-guide" placeholder="例如：上次联调时，TA 提前一天同步了接口变更，团队有时间调整计划。"></textarea>
+        <details class="feedback-optional">
+          <summary>补充工作观察（可选）</summary>
+          <div class="profile-fields">
+            <label>性格 · 工作风格<textarea name="style" data-profile-note rows="2" maxlength="400" placeholder="遇到分歧时，TA 通常怎么沟通或讨论？"></textarea></label>
+            <label>能力 · 协作能力<textarea name="ability" data-profile-note rows="2" maxlength="400" placeholder="在推进工作、解决问题时，TA 做了什么？"></textarea></label>
+            <label>品格 · 职业行为<textarea name="conduct" data-profile-note rows="2" maxlength="400" placeholder="TA 怎样兑现承诺、承担责任或对待同事？"></textarea></label>
+          </div>
+        </details>
+        <details class="feedback-optional">
+          <summary>补充量表评价（可选）</summary>
+          <fieldset class="review-scale" aria-label="量表评价">
+          <p class="feedback-help">按有机会观察时的频率作答。没遇到相关场景，可以选「未观察到」。</p>
+          <label class="review-dimension">
+            <span><strong>信息同步</strong><small id="review-sync-end">重要变更会提前说明，让你来得及调整。</small></span>
+            <select name="sync" data-rating aria-label="信息同步" aria-describedby="review-sync-end"></select>
+          </label>
+          <label class="review-dimension">
+            <span><strong>交付跟进</strong><small id="review-follow-up-end">答应的事有进度和回音，延期会主动更新。</small></span>
+            <select name="followUp" data-rating aria-label="交付跟进" aria-describedby="review-follow-up-end"></select>
+          </label>
+          <label class="review-dimension">
+            <span><strong>问题解决</strong><small id="review-resolution-end">遇到卡点会说清问题，并提出下一步。</small></span>
+            <select name="resolution" data-rating aria-label="问题解决" aria-describedby="review-resolution-end"></select>
+          </label>
+          <label class="review-dimension">
+            <span><strong>协作支持</strong><small id="review-support-end">收到求助会回应，并说清能帮到哪一步。</small></span>
+            <select name="support" data-rating aria-label="协作支持" aria-describedby="review-support-end"></select>
+          </label>
+          </fieldset>
+        </details>
+        <fieldset class="vote-field">
+          <legend>最终评价</legend>
+          <div class="vote-options">
+            <label><input type="radio" name="vote" value="up" required><span><strong>赞</strong><small>认可这次合作</small></span></label>
+            <label><input type="radio" name="vote" value="down"><span><strong>踩</strong><small>这次合作有待改进</small></span></label>
+          </div>
+          <p class="feedback-help">提交前请选择。确认的赞和踩用于计算庭院好评率。</p>
+        </fieldset>
+        <div class="feedback-actions">
+          <div class="scene-actions">
+            <button type="submit" value="submit" class="glass scene-action feedback-submit">提交互评</button>
+            <button type="submit" value="draft" class="glass scene-action">保存草稿</button>
+          </div>
+          <span class="feedback-status" role="status"></span>
+          <p class="feedback-help">文字会发给 OpenAI 整理。收到评价的同事可以查看提交的原文和量表。</p>
+        </div>
+      </form>
+      <section class="review-analysis" aria-labelledby="analysis-title" hidden>
+        <h3 id="analysis-title">GPT 文字分析</h3>
+        <p class="analysis-status" role="status"></p>
+        <div class="analysis-result" hidden>
+          <p class="analysis-summary"></p>
+          <div class="analysis-observations"></div>
+          <p class="analysis-follow-up" hidden></p>
+        </div>
+        <button class="glass scene-action analysis-retry" type="button" hidden>重新分析</button>
+      </section>
+      <template id="feedback-frequency-options">
+        <option value="">选择频率</option>
+        <option value="5">5 · 几乎总是</option>
+        <option value="4">4 · 经常</option>
+        <option value="3">3 · 有时</option>
+        <option value="2">2 · 偶尔</option>
+        <option value="1">1 · 几乎从不</option>
+        <option value="unobserved">未观察到</option>
+      </template>
+    </section>
+    <section data-content="yard" hidden>
+      <p class="intro colleagues-status" role="status"></p>
+      <div class="colleagues"></div>
+    </section>
+  </dialog>
+</body>
+</html>
