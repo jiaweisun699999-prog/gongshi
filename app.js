@@ -216,12 +216,24 @@ const analysisSummary = analysisPanel.querySelector(".analysis-summary");
 const analysisObservations = analysisPanel.querySelector(".analysis-observations");
 const analysisFollowUp = analysisPanel.querySelector(".analysis-follow-up");
 const retryAnalysis = analysisPanel.querySelector(".analysis-retry");
+const sentReviews = dialog.querySelector(".sent-reviews");
+const sentCount = sentReviews.querySelector(".sent-count");
+const sentStatus = sentReviews.querySelector(".sent-status");
+const sentList = sentReviews.querySelector(".sent-list");
+const sentPager = sentReviews.querySelector(".sent-pager");
+const sentPrev = sentReviews.querySelector(".sent-prev");
+const sentNext = sentReviews.querySelector(".sent-next");
+const sentPageLabel = sentReviews.querySelector(".sent-page");
+let sentPage = 1;
+let sentRequest = 0;
 const frequencyOptions = document.querySelector("#feedback-frequency-options").content;
 const ratingValues = new Set(Array.from(frequencyOptions.querySelectorAll("option"), option => option.value));
 for (const field of ratingFields) field.append(frequencyOptions.cloneNode(true));
 
 const edits = new Map();
 const analysisJobs = new Map();
+const submissionIds = new Map();
+let savingReview = false;
 let reviews = {};
 
 function readReview() {
@@ -247,7 +259,7 @@ function showAnalysis() {
   if (analysisPanel.hidden) return;
 
   const job = analysisJobs.get(peer.value);
-  const currentJob = job?.key === textKey(submitted) ? job : null;
+  const currentJob = job?.reviewId === submitted.id ? job : null;
   const analysis = submitted.analysis;
   analysisStatus.hidden = Boolean(analysis);
   analysisStatus.textContent = currentJob?.pending
@@ -287,19 +299,19 @@ async function analyzeSubmitted(peerId) {
   if (!hasWrittenFeedback(submitted) || submitted.analysis) return;
   const key = textKey(submitted);
   const previous = analysisJobs.get(peerId);
-  if (previous?.pending && previous.key === key) return;
+  if (previous?.pending && previous.reviewId === submitted.id) return;
 
-  const job = { key, pending: true };
+  const job = { key, reviewId: submitted.id, pending: true };
   analysisJobs.set(peerId, job);
   showAnalysis();
 
   try {
     const data = await account.request("/api/reviews/analyze", {
       method: "POST",
-      body: { recipient: peerId },
+      body: { recipient: Number(peerId), reviewId: submitted.id },
     });
     const latest = reviews[peerId];
-    if (analysisJobs.get(peerId) !== job || textKey(latest?.submitted) !== job.key) return;
+    if (analysisJobs.get(peerId) !== job || latest?.submitted?.id !== data.reviewId) return;
     reviews[peerId] = { ...latest, submitted: { ...latest.submitted, analysis: data.analysis } };
   } catch (error) {
     job.error = error instanceof TypeError ? "无法连接本地分析服务，请在本地预览打开后重试。" : error.message;
@@ -311,7 +323,7 @@ async function analyzeSubmitted(peerId) {
 
 function showPeerReview() {
   const saved = reviews[peer.value];
-  const review = edits.get(peer.value) ?? saved?.draft ?? saved?.submitted;
+  const review = edits.get(peer.value) ?? saved?.draft;
   for (const field of ratingFields) {
     const value = review?.ratings?.[field.name];
     field.value = ratingValues.has(value) ? value : "";
@@ -319,11 +331,42 @@ function showPeerReview() {
   note.value = typeof review?.note === "string" ? review.note : "";
   for (const field of profileFields) field.value = review?.profileNotes?.[field.name] ?? "";
   for (const field of voteFields) field.checked = review?.vote === field.value;
-  feedbackStatus.textContent = saved?.submitted
-    ? "已提交过一份互评，重新提交会更新该记录。"
+  feedbackStatus.textContent = saved?.count
+    ? "你已给 TA 留下 " + saved.count + " 份反馈。这次提交会新增一份，之前的都会保留。"
     : "";
   showAnalysis();
+  refreshSentReviews();
 }
+
+async function refreshSentReviews(page = 1) {
+  const sequence = ++sentRequest;
+  const recipient = peer.value;
+  const count = reviews[recipient]?.count ?? 0;
+  sentReviews.hidden = !count;
+  sentList.replaceChildren();
+  sentPager.hidden = true;
+  if (!count) return;
+  sentCount.textContent = "（" + count + " 份）";
+  sentStatus.textContent = "正在读取历次反馈…";
+  sentPrev.disabled = sentNext.disabled = true;
+  try {
+    const data = await account.request("/api/reviews/" + recipient + "/history?page=" + page);
+    if (sequence !== sentRequest || recipient !== peer.value) return;
+    sentPage = data.page;
+    sentCount.textContent = "（" + data.total + " 份）";
+    sentStatus.textContent = "每次提交独立保存，按最近提交的顺序显示。";
+    sentList.replaceChildren(...data.items.map((review, index) => reviewDetails(review, (data.page - 1) * 20 + index)));
+    sentPager.hidden = data.pages <= 1;
+    sentPageLabel.textContent = data.page + " / " + data.pages;
+    sentPrev.disabled = data.page <= 1;
+    sentNext.disabled = data.page >= data.pages;
+  } catch (error) {
+    if (sequence === sentRequest) sentStatus.textContent = error.message;
+  }
+}
+
+sentPrev.addEventListener("click", () => refreshSentReviews(sentPage - 1));
+sentNext.addEventListener("click", () => refreshSentReviews(sentPage + 1));
 
 let selectedPeer = peer.value;
 showPeerReview();
@@ -335,6 +378,7 @@ feedback.addEventListener("input", event => {
 });
 feedback.addEventListener("submit", async event => {
   event.preventDefault();
+  if (savingReview) return;
   if (!peer.value) {
     feedbackStatus.textContent = "请先选择一位要评价的同事。";
     peerSearch.focus();
@@ -358,19 +402,26 @@ feedback.addEventListener("submit", async event => {
   }
 
   const recipient = peer.value;
+  const signature = JSON.stringify(review);
+  if (!draftOnly && submissionIds.get(recipient)?.signature !== signature) {
+    submissionIds.set(recipient, { signature, id: crypto.randomUUID() });
+  }
+  savingReview = true;
   const submitButtons = Array.from(feedback.querySelectorAll('button[type="submit"]'));
   submitButtons.forEach(button => { button.disabled = true; });
   try {
     const { entry } = await account.request("/api/reviews/" + recipient, {
       method: "PUT",
-      body: { ...review, kind: draftOnly ? "draft" : "submit" },
+      body: { ...review, kind: draftOnly ? "draft" : "submit", ...(!draftOnly ? { submissionId: submissionIds.get(recipient).id } : {}) },
     });
     reviews[recipient] = entry;
     const current = edits.get(recipient);
     if (current && textKey(current) === textKey(review) && current.vote === review.vote
       && JSON.stringify(current.ratings) === JSON.stringify(review.ratings)) edits.delete(recipient);
+    if (!draftOnly) submissionIds.delete(recipient);
     if (peer.value === recipient) {
-      feedbackStatus.textContent = draftOnly ? "草稿已保存到你的账号。" : "互评已提交，将纳入对方的个人报告。";
+      showPeerReview();
+      feedbackStatus.textContent = draftOnly ? "草稿已保存到你的账号。" : "新的反馈已提交，之前的评价也都保留。你可以继续写下一份。";
     }
     showAnalysis();
     if (!draftOnly && hasWrittenFeedback(entry.submitted) && !entry.submitted.analysis) {
@@ -380,6 +431,7 @@ feedback.addEventListener("submit", async event => {
   } catch (error) {
     if (peer.value === recipient) feedbackStatus.textContent = error.message;
   } finally {
+    savingReview = false;
     submitButtons.forEach(button => { button.disabled = false; });
   }
 });
@@ -705,61 +757,70 @@ function renderReceivedReviews(reviews) {
   receivedReviews.hidden = reviews.length === 0;
   receivedCount.textContent = reviews.length + " 条";
 
-  receivedList.replaceChildren(...reviews.map((review, index) => {
-    const entry = document.createElement("details");
-    const summary = document.createElement("summary");
-    const name = document.createElement("strong");
-    const type = document.createElement("small");
-    name.textContent = "评价 " + (index + 1);
-    const hasText = review.note || review.observations?.length;
-    const reviewType = review.ratings.length ? hasText ? "文字和量表" : "量表评价" : "文字反馈";
-    type.textContent = [review.vote === "up" ? "赞" : review.vote === "down" ? "踩" : "", reviewType].filter(Boolean).join(" · ");
-    summary.append(name, type);
-    entry.append(summary);
+  receivedList.replaceChildren(...reviews.map(reviewDetails));
+}
 
-    const body = document.createElement("div");
-    body.className = "received-review-body";
-    if (review.note) {
-      const note = document.createElement("p");
-      note.className = "received-note";
-      note.textContent = review.note;
-      body.append(note);
+function reviewDetails(review, index) {
+  const entry = document.createElement("details");
+  const summary = document.createElement("summary");
+  const name = document.createElement("strong");
+  const type = document.createElement("small");
+  name.textContent = "评价 " + (index + 1);
+  const date = document.createElement("time");
+  if (review.submittedAt) {
+    date.dateTime = review.submittedAt;
+    date.textContent = new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(new Date(review.submittedAt));
+  } else date.textContent = "历史反馈 · 时间未记录";
+  name.append(date);
+  const hasText = review.note || review.observations?.length;
+  const reviewType = review.ratings.length ? hasText ? "文字和量表" : "量表评价" : "文字反馈";
+  type.textContent = [review.vote === "up" ? "赞" : review.vote === "down" ? "踩" : "", reviewType].filter(Boolean).join(" · ");
+  summary.append(name, type);
+  entry.append(summary);
+
+  const body = document.createElement("div");
+  body.className = "received-review-body";
+  if (review.note) {
+    const note = document.createElement("p");
+    note.className = "received-note";
+    note.textContent = review.note;
+    body.append(note);
+  }
+  for (const item of review.observations ?? []) {
+    const paragraph = document.createElement("p");
+    paragraph.className = "received-note";
+    paragraph.textContent = item.label + "：" + item.value;
+    body.append(paragraph);
+  }
+  if (review.ratings.length) {
+    const ratings = document.createElement("dl");
+    ratings.className = "received-ratings";
+    for (const rating of review.ratings) {
+      const label = document.createElement("dt");
+      const value = document.createElement("dd");
+      label.textContent = rating.label;
+      value.textContent = rating.value === "unobserved" ? "未观察到" : rating.value + " / 5";
+      ratings.append(label, value);
     }
-    for (const item of review.observations ?? []) {
-      const paragraph = document.createElement("p");
-      paragraph.className = "received-note";
-      paragraph.textContent = item.label + "：" + item.value;
-      body.append(paragraph);
-    }
-    if (review.ratings.length) {
-      const ratings = document.createElement("dl");
-      ratings.className = "received-ratings";
-      for (const rating of review.ratings) {
-        const label = document.createElement("dt");
-        const value = document.createElement("dd");
-        label.textContent = rating.label;
-        value.textContent = rating.value === "unobserved" ? "未观察到" : rating.value + " / 5";
-        ratings.append(label, value);
-      }
-      body.append(ratings);
-    }
-    entry.append(body);
-    return entry;
-  }));
+    body.append(ratings);
+  }
+  entry.append(body);
+  return entry;
 }
 
 function renderReport(data) {
   const { count, minimum, scores, report, stale, reviews } = data;
+  const receivedText = "已收到 " + (data.reviewCount ?? reviews?.length ?? count) + " 份反馈，其中 " + count + " 位同事提供了文字反馈。";
   const eligible = count >= minimum;
   reportButton.hidden = !eligible || Boolean(report && !stale);
   reportButton.textContent = report ? "更新报告" : "生成报告";
   reportStatus.textContent = !eligible
-    ? "已收到 " + count + " 位同事的文字反馈。至少 " + minimum + " 位提交后可生成 GPT 汇总。"
+    ? receivedText + "至少 " + minimum + " 位同事提交文字后可生成汇总。"
     : !report
-      ? "已收到 " + count + " 位同事的文字反馈。"
+      ? receivedText
       : stale
-        ? "当前显示上一版报告。收到新的反馈后，可以更新报告。"
-        : "本报告汇总了 " + report.sourceCount + " 位同事的文字反馈，仅你可见。";
+        ? receivedText + "当前显示上一版报告，可以更新汇总。"
+        : receivedText + "文字反馈已按维度汇总，仅你可见。";
   reportBody.hidden = !report;
   if (report) {
     reportSummary.textContent = report.summary;

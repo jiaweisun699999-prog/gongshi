@@ -55,6 +55,14 @@ systemctl reload caddy
 
 回滚时将 `current` 指回上一个版本并重启服务。涉及数据库结构变更时，先备份并核对旧版兼容性。
 
+支持多次评价的版本启动时，会自动将旧版当前保存的正式评价迁移到 `review_history`，通过迁移记录避免重复导入，草稿保留。升级前先备份数据库。旧版程序不能读取新历史表，切回旧版可能遗漏升级后新增的评价；此类回滚需使用兼容程序，或在确认数据影响后恢复升级前快照。
+
+服务器使用独立的 musl 加载器，测试子进程需要显式指定 Node 包装脚本。部署前可以在新版本目录执行以下测试，测试数据库在临时目录中，不接触正式数据：
+
+```sh
+GONGSHI_TEST_NODE=/opt/gongshi/bin/node /opt/gongshi/bin/node tests/review-history.test.mjs
+```
+
 本目录的 `gongshi.service`、`caddy.service` 和 `Caddyfile` 对应服务器使用的配置。修改服务文件后执行 `systemctl daemon-reload` 并重启对应服务；修改 Caddyfile 后先执行 `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`，再 reload。
 
 CentOS 7 的本次部署使用文件能力让普通 `caddy` 用户绑定网站端口。替换 Caddy 二进制后，需要重新执行以下命令，再重启 Caddy：

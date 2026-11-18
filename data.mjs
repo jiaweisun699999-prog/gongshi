@@ -46,7 +46,35 @@ db.exec(`
     payload TEXT NOT NULL,
     generated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);
+  CREATE TABLE IF NOT EXISTS review_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author INTEGER NOT NULL REFERENCES users(id),
+    recipient INTEGER NOT NULL REFERENCES users(id),
+    payload TEXT NOT NULL,
+    submitted_at TEXT,
+    submission_id TEXT NOT NULL,
+    UNIQUE (author, submission_id),
+    CHECK (author <> recipient)
+  );
+  CREATE INDEX IF NOT EXISTS review_history_recipient ON review_history(recipient, id);
+  CREATE INDEX IF NOT EXISTS review_history_author ON review_history(author, recipient, id);
 `);
+
+// Preserve each surviving legacy submission once. Its original timestamp is unknown.
+db.exec("BEGIN IMMEDIATE");
+try {
+  if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version = 1").get()) {
+    db.exec(`INSERT INTO review_history (author, recipient, payload, submission_id)
+      SELECT author, recipient, submitted, 'legacy:' || author || ':' || recipient
+      FROM reviews WHERE submitted IS NOT NULL`);
+    db.prepare("INSERT INTO schema_migrations VALUES (1)").run();
+  }
+  db.exec("COMMIT");
+} catch (error) {
+  db.exec("ROLLBACK");
+  throw error;
+}
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -247,13 +275,52 @@ export function reviewText(review) {
 }
 
 export function reviewEntry(author, recipient) {
-  const row = db.prepare("SELECT draft, submitted FROM reviews JOIN users ON users.id = reviews.recipient WHERE author = ? AND recipient = ? AND users.role = 'member'").get(author, recipient);
-  return { draft: parse(row?.draft), submitted: parse(row?.submitted) };
+  const row = db.prepare("SELECT draft FROM reviews JOIN users ON users.id = reviews.recipient WHERE author = ? AND recipient = ? AND users.role = 'member'").get(author, recipient);
+  const latest = db.prepare(`SELECT h.id, h.payload, h.submitted_at FROM review_history h
+    JOIN users ON users.id = h.recipient WHERE author = ? AND recipient = ? AND users.role = 'member' ORDER BY h.id DESC LIMIT 1`).get(author, recipient);
+  const count = db.prepare("SELECT count(*) AS n FROM review_history WHERE author = ? AND recipient = ?").get(author, recipient).n;
+  return { draft: parse(row?.draft), submitted: latest ? { ...parse(latest.payload), id: latest.id, submittedAt: latest.submitted_at } : null, count };
 }
 
 export function outgoing(author) {
-  const rows = db.prepare("SELECT recipient, draft, submitted FROM reviews JOIN users ON users.id = reviews.recipient WHERE author = ? AND users.role = 'member'").all(author);
-  return Object.fromEntries(rows.map(row => [row.recipient, { draft: parse(row.draft), submitted: parse(row.submitted) }]));
+  const rows = db.prepare(`SELECT recipient FROM reviews WHERE author = ? AND draft IS NOT NULL
+    UNION SELECT recipient FROM review_history WHERE author = ?`).all(author, author);
+  return Object.fromEntries(rows.filter(row => getUser(row.recipient)?.role === "member")
+    .map(row => [row.recipient, reviewEntry(author, row.recipient)]));
+}
+
+function visibleReview(row) {
+  const review = parse(row.payload);
+  return {
+    id: row.id, submittedAt: row.submitted_at, note: review.note, vote: review.vote ?? null,
+    observations: Object.entries(profileAreas).flatMap(([key, label]) => {
+      const value = review.profileNotes?.[key];
+      return value ? [{ label, value }] : [];
+    }),
+    ratings: Object.entries(ratingDimensions).flatMap(([key, label]) => {
+      const value = review.ratings?.[key];
+      return value ? [{ label, value }] : [];
+    }),
+  };
+}
+
+export function reviewHistory(author, recipient, requestedPage) {
+  const target = getUser(recipient);
+  if (!target || target.role !== "member" || author === recipient) throw new ApiError(404, "未找到这位同事。");
+  const total = db.prepare("SELECT count(*) AS n FROM review_history WHERE author = ? AND recipient = ?").get(author, recipient).n;
+  const pageSize = 20;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const parsed = Number(requestedPage);
+  const page = Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, pages) : 1;
+  const items = db.prepare("SELECT id, payload, submitted_at FROM review_history WHERE author = ? AND recipient = ? ORDER BY id DESC LIMIT ? OFFSET ?")
+    .all(author, recipient, pageSize, (page - 1) * pageSize).map(visibleReview);
+  return { items, total, page, pages };
+}
+
+export function submittedReview(author, recipient, id) {
+  const row = db.prepare("SELECT id, payload, submitted_at FROM review_history WHERE author = ? AND recipient = ? AND id = ?").get(author, recipient, id);
+  if (!row) throw new ApiError(404, "未找到你提交的这条反馈。");
+  return { ...parse(row.payload), id: row.id, submittedAt: row.submitted_at };
 }
 
 export function saveReview(author, recipient, input) {
@@ -283,52 +350,65 @@ export function saveReview(author, recipient, input) {
     db.prepare(`INSERT INTO reviews (author, recipient, draft) VALUES (?, ?, ?)
       ON CONFLICT (author, recipient) DO UPDATE SET draft = excluded.draft`).run(author, recipient, JSON.stringify(review));
   } else {
-    const previous = reviewEntry(author, recipient).submitted;
-    if (previous?.analysis && reviewText(previous) === reviewText(review)) review.analysis = previous.analysis;
-    db.prepare(`INSERT INTO reviews (author, recipient, submitted) VALUES (?, ?, ?)
-      ON CONFLICT (author, recipient) DO UPDATE SET submitted = excluded.submitted, draft = NULL`).run(author, recipient, JSON.stringify(review));
+    const submissionId = input.submissionId ?? randomBytes(24).toString("hex");
+    if (typeof submissionId !== "string" || !/^[A-Za-z0-9_-]{16,80}$/.test(submissionId)) throw new ApiError(400, "提交标识格式不正确。");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = db.prepare("SELECT recipient, payload FROM review_history WHERE author = ? AND submission_id = ?").get(author, submissionId);
+      if (existing) {
+        const previous = parse(existing.payload);
+        delete previous.analysis;
+        if (existing.recipient !== recipient || JSON.stringify(previous) !== JSON.stringify(review)) {
+          throw new ApiError(409, "这次提交已保存，请重新开始一份反馈。");
+        }
+      } else {
+        db.prepare("INSERT INTO review_history (author, recipient, payload, submitted_at, submission_id) VALUES (?, ?, ?, ?, ?)")
+          .run(author, recipient, JSON.stringify(review), new Date().toISOString(), submissionId);
+        db.prepare("UPDATE reviews SET draft = NULL WHERE author = ? AND recipient = ?").run(author, recipient);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
   return reviewEntry(author, recipient);
 }
 
-export function saveReviewAnalysis(author, recipient, text, analysis) {
-  const submitted = reviewEntry(author, recipient).submitted;
+export function saveReviewAnalysis(author, recipient, id, text, analysis) {
+  const submitted = submittedReview(author, recipient, id);
   if (reviewText(submitted) !== text) throw new ApiError(409, "反馈已更新，请重新分析最新内容。");
-  db.prepare("UPDATE reviews SET submitted = ? WHERE author = ? AND recipient = ?")
-    .run(JSON.stringify({ ...submitted, analysis }), author, recipient);
+  delete submitted.id;
+  delete submitted.submittedAt;
+  db.prepare("UPDATE review_history SET payload = ? WHERE id = ? AND author = ? AND recipient = ?")
+    .run(JSON.stringify({ ...submitted, analysis }), id, author, recipient);
 }
 
 export const minimumReportSources = 2;
 
 export function reportSnapshot(recipient) {
-  const received = db.prepare("SELECT author, submitted FROM reviews WHERE recipient = ? AND submitted IS NOT NULL ORDER BY author")
-    .all(recipient).map(row => ({ author: row.author, review: parse(row.submitted) }));
-  const text = received.flatMap(row => {
+  const history = db.prepare("SELECT id, author, payload, submitted_at FROM review_history WHERE recipient = ? ORDER BY id").all(recipient);
+  const received = history.map(row => ({ author: row.author, review: parse(row.payload) }));
+  const written = received.flatMap(row => {
     const note = reviewText(row.review);
     return note ? [{ author: row.author, note }] : [];
   });
+  // A source represents one colleague, including all of their separate observations.
+  const grouped = new Map();
+  for (const row of written) grouped.set(row.author, [...(grouped.get(row.author) ?? []), row.note]);
+  const text = [...grouped].sort(([a], [b]) => a - b).map(([author, notes]) => ({ author, note: notes.join("\n\n") }));
   const scores = Object.entries(ratingDimensions).map(([key, label]) => {
     const numbers = received.map(row => Number(row.review.ratings[key])).filter(value => Number.isInteger(value) && value >= 1 && value <= 5);
     const count = numbers.length;
-    return { label, count, average: count < minimumReportSources ? null : Math.round(numbers.reduce((sum, value) => sum + value, 0) / count * 10) / 10 };
+    const raters = new Set(received.filter(row => { const value = Number(row.review.ratings[key]); return Number.isInteger(value) && value >= 1 && value <= 5; }).map(row => row.author)).size;
+    return { label, count, raters, average: raters < minimumReportSources ? null : Math.round(numbers.reduce((sum, value) => sum + value, 0) / count * 10) / 10 };
   });
-  const revision = hash(JSON.stringify([2, text]));
+  const revision = hash(JSON.stringify([3, text]));
   const stored = db.prepare("SELECT revision, payload, generated_at FROM reports WHERE recipient = ?").get(recipient);
   const report = text.length >= minimumReportSources && stored
     ? { ...parse(stored.payload), generatedAt: stored.generated_at }
     : null;
-  const reviews = received.map(({ review }) => ({
-    note: review.note,
-    vote: review.vote ?? null,
-    observations: Object.entries(profileAreas).flatMap(([key, label]) => {
-      const value = review.profileNotes?.[key];
-      return value ? [{ label, value }] : [];
-    }),
-    ratings: Object.entries(ratingDimensions).flatMap(([key, label]) => {
-      const value = review.ratings[key];
-      return value ? [{ label, value }] : [];
-    }),
-  }));
+  const reviews = history.toReversed().map(visibleReview);
   const votes = received.map(({ review }) => review.vote).filter(vote => vote === "up" || vote === "down");
   const positive = votes.filter(vote => vote === "up").length;
   const approval = { count: votes.length, rate: votes.length ? Math.round(positive * 1000 / votes.length) / 10 : null };
@@ -336,7 +416,7 @@ export function reportSnapshot(recipient) {
     revision,
     notes: text.map(row => row.note),
     overview: {
-      count: text.length, minimum: minimumReportSources, scores, report, reviews, approval,
+      count: text.length, reviewCount: received.length, textReviewCount: written.length, minimum: minimumReportSources, scores, report, reviews, approval,
       stale: Boolean(report && stored.revision !== revision),
     },
   };

@@ -440,6 +440,11 @@ meter::-moz-meter-bar { border-radius: 999px; background: linear-gradient(90deg,
 .received-list summary { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; list-style: none; cursor: pointer; }
 .received-list summary::-webkit-details-marker { display: none; }
 .received-list summary small { margin-left: auto; color: var(--room-glass-muted); }
+.received-list summary strong { display: grid; gap: 2px; }
+.received-list summary time { color: var(--room-glass-muted); font-size: 11px; font-weight: 400; }
+.sent-reviews { padding: 0 11px 10px; }
+.sent-reviews > summary { margin: 0 -11px; }
+.sent-count { font-size: 12px; }
 .received-list summary::after { content: ""; width: 6px; height: 6px; margin-right: 2px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
 .received-list details[open] summary::after { transform: rotate(225deg); }
 .received-review-body { margin: 0 12px; padding: 9px 0 11px; border-top: 1px solid var(--room-glass-rim); }

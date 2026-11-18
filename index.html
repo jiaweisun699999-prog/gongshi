@@ -191,7 +191,7 @@
         </div>
       </form>
       <section class="review-analysis" aria-labelledby="analysis-title" hidden>
-        <h3 id="analysis-title">GPT 文字分析</h3>
+        <h3 id="analysis-title">最近一份反馈的整理</h3>
         <p class="analysis-status" role="status"></p>
         <div class="analysis-result" hidden>
           <p class="analysis-summary"></p>
@@ -200,6 +200,16 @@
         </div>
         <button class="glass scene-action analysis-retry" type="button" hidden>重新分析</button>
       </section>
+      <details class="feedback-optional sent-reviews" hidden>
+        <summary>我给 TA 的历次反馈 <span class="sent-count"></span></summary>
+        <p class="feedback-help sent-status" role="status"></p>
+        <div class="received-list sent-list"></div>
+        <nav class="directory-pager sent-pager" aria-label="已提交反馈分页" hidden>
+          <button class="glass scene-action sent-prev" type="button">上一页</button>
+          <span class="sent-page"></span>
+          <button class="glass scene-action sent-next" type="button">下一页</button>
+        </nav>
+      </details>
       <template id="feedback-frequency-options">
         <option value="">选择频率</option>
         <option value="5">5 · 几乎总是</option>
