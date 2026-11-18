@@ -1,0 +1,22 @@
+[Unit]
+Description=Gongshi colleague feedback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gongshi
+Group=gongshi
+WorkingDirectory=/opt/gongshi/current
+EnvironmentFile=/etc/gongshi/environment
+ExecStart=/opt/gongshi/bin/node server.mjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -7,9 +7,15 @@ import {
 } from "./data.mjs";
 
 const port = Number(process.env.PORT || 4173);
+const publicUrl = process.env.PUBLIC_ORIGIN ? new URL(process.env.PUBLIC_ORIGIN) : null;
+if (publicUrl && (!['http:', 'https:'].includes(publicUrl.protocol) || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/' || publicUrl.search || publicUrl.hash)) {
+  throw new Error('PUBLIC_ORIGIN must be an HTTP(S) origin without a path.');
+}
+const publicOrigin = publicUrl?.origin;
 const apiKey = process.env.OPENAI_API_KEY?.trim();
 const model = process.env.OPENAI_MODEL?.trim() || "gpt-5-mini";
 const hosts = new Set(["localhost:" + port, "127.0.0.1:" + port]);
+if (publicUrl) hosts.add(publicUrl.host);
 const cookieName = "huping_session";
 const adminCookieName = "huping_admin_session";
 const reportJobs = new Map();
@@ -149,8 +155,8 @@ function checkEvidence(analysis, note) {
 }
 
 async function readJson(request) {
-  if (request.headers.origin && request.headers.origin !== "http://" + request.headers.host) {
-    throw new ApiError(403, "该接口仅供本地互评页面调用。");
+  if (request.headers.origin && request.headers.origin !== (publicOrigin || "http://" + request.headers.host)) {
+    throw new ApiError(403, "请通过本站页面操作。");
   }
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers["content-type"] || "")) {
     throw new ApiError(415, "请发送 JSON 请求。");
@@ -263,7 +269,7 @@ function cookieToken(request, name) {
 
 function setSession(response, token, age = sessionLifetime, scope = "member") {
   const [name, path] = scope === "admin" ? [adminCookieName, "/api/admin"] : [cookieName, "/"];
-  response.setHeader("Set-Cookie", name + "=" + token + "; HttpOnly; SameSite=Strict; Path=" + path + "; Max-Age=" + age);
+  response.setHeader("Set-Cookie", name + "=" + token + "; HttpOnly; SameSite=Strict; Path=" + path + "; Max-Age=" + age + (publicUrl?.protocol === "https:" ? "; Secure" : ""));
 }
 
 async function adminApi(request, response, path) {
@@ -381,7 +387,7 @@ async function api(request, response, path) {
 
 if (process.argv.includes("--setup")) {
   try {
-    console.log("http://127.0.0.1:" + port + "/admin#setup=" + issueSetupToken());
+    console.log((publicOrigin || "http://127.0.0.1:" + port) + "/admin#setup=" + issueSetupToken());
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -389,7 +395,7 @@ if (process.argv.includes("--setup")) {
 } else createServer(async (request, response) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "no-referrer");
-  if (!hosts.has(request.headers.host)) return json(response, 403, { error: "此预览仅限本机访问。" });
+  if (!hosts.has(request.headers.host)) return json(response, 403, { error: "请使用配置的站点地址访问。" });
   try {
     const path = new URL(request.url, "http://127.0.0.1").pathname;
     if (path.startsWith("/api/")) return await api(request, response, path);

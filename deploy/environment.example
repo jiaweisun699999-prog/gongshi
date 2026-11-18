@@ -1,0 +1,6 @@
+# Template only. Set the real key in /etc/gongshi/environment on the server.
+OPENAI_API_KEY=replace-with-your-openai-api-key
+OPENAI_MODEL=gpt-5-mini
+PORT=4173
+PUBLIC_ORIGIN=https://aidatamind.cn
+HUPING_DB=/var/lib/gongshi/reviews.sqlite

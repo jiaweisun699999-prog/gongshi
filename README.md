@@ -47,6 +47,7 @@ PORT=4173
 | `OPENAI_MODEL` | `gpt-5-mini` | 模型需要支持 Responses API、结构化输出及当前请求中的推理参数 |
 | `PORT` | `4173` | 本地 HTTP 服务端口 |
 | `HUPING_DB` | `.huping-data/reviews.sqlite` | SQLite 数据库路径，相对路径基于启动命令的工作目录 |
+| `PUBLIC_ORIGIN` | 未设置 | 远程部署的完整站点来源，例如 `https://aidatamind.cn`；配置后允许该 Host、校验同源请求，并为 HTTPS 登录 Cookie 添加 Secure |
 
 未配置密钥时，登录、账号管理、互评保存等功能仍可使用；需要调用 GPT 的分析操作会提示配置密钥。
 
@@ -94,6 +95,48 @@ node --env-file=.env server.mjs --setup
 不同账号可以使用不同浏览器或独立浏览器配置同时体验。在同一个浏览器会话内切换账号时，其他标签页会同步更新登录状态。
 
 **新克隆的仓库没有预置账号、测试密码和评价数据。** 本地试用时创建的数据保存在数据库中。
+
+## 阿里云部署
+
+本次部署使用独立的正式数据库，没有导入本地测试账号、评价和报告。
+
+| 项目 | 配置 |
+| --- | --- |
+| 用户入口 | [https://aidatamind.cn](https://aidatamind.cn) |
+| 管理后台 | [https://aidatamind.cn/admin](https://aidatamind.cn/admin)，不在用户界面显示入口 |
+| 域名解析 | `aidatamind.cn` 和 `www.aidatamind.cn` 的 A 记录指向 `43.108.80.68` |
+| HTTPS | Caddy 2.11.9 自动申请和续期证书，HTTP 跳转 HTTPS，`www` 跳转主域名 |
+| 应用运行 | Node.js 24.22.3，监听 `127.0.0.1:4173`，由 Caddy 转发 |
+| 程序目录 | `/opt/gongshi/releases/` 保存版本，`/opt/gongshi/current` 指向当前版本 |
+| 正式数据 | `/var/lib/gongshi/reviews.sqlite`，与程序版本分开保存 |
+| 后端配置 | `/etc/gongshi/environment`，权限 `600`，仅 root 可读 |
+| 进程管理 | `gongshi.service` 和 `caddy.service`，均已设置开机启动 |
+| 数据备份 | `/etc/cron.daily/gongshi-backup` 每日执行，备份到 `/var/backups/gongshi/`，保留约 14 天 |
+
+服务器为 CentOS 7，使用独立的 musl 运行库兼容 Node.js，没有替换系统 glibc。后续建议迁移到受支持的新系统；运行环境与代理需定期更新。
+
+生产环境变量的无密钥模板见 [deploy/environment.example](deploy/environment.example)。实际密钥只保存在服务器配置文件中，修改后执行 `systemctl restart gongshi`。
+
+首次设置管理员需要通过 SSH 生成一次性链接，链接本身不要写入文档或提交到 Git：
+
+```sh
+cd /opt/gongshi/current
+sudo -u gongshi env HUPING_DB=/var/lib/gongshi/reviews.sqlite PUBLIC_ORIGIN=https://aidatamind.cn /opt/gongshi/bin/node server.mjs --setup
+```
+
+打开命令输出的链接设置管理员，再在后台创建正式同事账号。初始化链接有效期 24 小时，使用一次后失效；已有管理员时直接访问 `/admin` 登录。
+
+常用维护命令：
+
+```sh
+systemctl status gongshi caddy
+journalctl -u gongshi -n 50 --no-pager
+systemctl restart gongshi
+systemctl reload caddy
+/etc/cron.daily/gongshi-backup
+```
+
+更新时只上传程序与素材到新版本目录，切换 `current` 后重启应用，保留原有配置文件和正式数据库。不要上传本地 `.env`、`.huping-data/` 或 `.git/`。回滚、恢复和服务配置详见 [部署说明](deploy/README.md)。
 
 ## 评价与汇总
 
@@ -144,6 +187,7 @@ node --env-file=.env server.mjs --setup
 ├── admin.js         # 管理员会话、账号编辑、搜索与分页
 ├── server.mjs       # 本地 HTTP 服务、API 路由和 GPT 分析
 ├── data.mjs         # SQLite 数据、账号、会话和互评查询
+├── deploy/          # 服务配置、环境变量模板、备份脚本和部署说明
 └── assets/          # 四个房间的 WebP 背景
 ```
 
@@ -163,6 +207,6 @@ node --check server.mjs
 
 开发中已进行浏览器交互验证，覆盖登录与账号权限、互评保存、报告汇总、列表搜索和分页，以及桌面和手机布局。当前仓库尚未提供自动化回归测试套件。
 
-当前服务仅监听 `127.0.0.1`，并限制请求 Host 为本地地址，适合本机运行。代码上传 GitHub 后可以分享和克隆；完整应用需要运行 Node.js 服务和 SQLite，GitHub Pages 无法承载这些后端功能。
+服务监听 `127.0.0.1`。本地默认只接受本机 Host；远程部署时配置 `PUBLIC_ORIGIN`，由 HTTPS 反向代理转发请求。完整应用需要运行 Node.js 服务和 SQLite，GitHub Pages 无法承载这些后端功能。
 
-团队远程使用前，需要另行完成服务器部署、域名与 HTTPS 配置，并调整监听地址、Host 校验、同源校验和 Cookie 配置。目前还没有加入登录限流、审计日志和自动备份。
+服务器目录、服务与更新方法见 [部署说明](deploy/README.md)。当前应用没有登录限流和操作审计。
