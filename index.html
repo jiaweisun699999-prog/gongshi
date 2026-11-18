@@ -129,10 +129,16 @@
       <p class="intro">回想最近三个月直接合作过的事，写下你亲眼看到的行为。</p>
       <form class="feedback" novalidate>
         <div class="review-peer">
-          <label class="feedback-label" for="feedback-peer">评价对象</label>
-          <select id="feedback-peer" name="peer" required>
-            <option value="" disabled selected>选择一位同事</option>
-          </select>
+          <label class="feedback-label" for="peer-search">评价对象</label>
+          <div class="peer-picker">
+            <input type="hidden" name="peer" id="feedback-peer">
+            <input type="search" id="peer-search" role="combobox" autocomplete="off" maxlength="80" placeholder="搜索姓名或登录名" aria-autocomplete="list" aria-expanded="false" aria-controls="peer-results">
+            <div class="peer-popup" hidden>
+              <p class="peer-status" role="status"></p>
+              <div class="peer-results" id="peer-results" role="listbox" aria-label="可评价的同事"></div>
+              <button class="glass scene-action peer-more" type="button" hidden>加载更多</button>
+            </div>
+          </div>
         </div>
         <label class="feedback-label" for="feedback-note">文字反馈</label>
         <p class="feedback-help" id="feedback-note-guide">说清当时的场景、对方做了什么、带来了什么影响。</p>
@@ -205,8 +211,14 @@
       </template>
     </section>
     <section data-content="yard" hidden>
-      <p class="intro colleagues-status" role="status"></p>
-      <div class="colleagues"></div>
+      <label class="directory-search">查找同事<input type="search" maxlength="80" placeholder="搜索姓名或登录名" autocomplete="off"></label>
+      <p class="colleagues-status" role="status"></p>
+      <div class="colleagues" role="region" aria-label="同事卡片列表" tabindex="0"></div>
+      <nav class="directory-pager" aria-label="同事列表分页" hidden>
+        <button class="glass scene-action directory-prev" type="button">上一页</button>
+        <span class="directory-page"></span>
+        <button class="glass scene-action directory-next" type="button">下一页</button>
+      </nav>
     </section>
   </dialog>
 </body>

@@ -9,6 +9,11 @@ const memberForm = document.querySelector("#member-form");
 const memberStatus = memberForm.querySelector(".account-status");
 const memberList = document.querySelector(".member-list");
 const listStatus = document.querySelector(".member-list-status");
+const memberSearch = document.querySelector(".member-search input");
+const memberPager = document.querySelector(".member-pager");
+const memberPrev = document.querySelector(".member-prev");
+const memberNext = document.querySelector(".member-next");
+const memberPageLabel = document.querySelector(".member-page");
 const cancelEdit = memberForm.querySelector(".member-cancel");
 const setupToken = /^#setup=([A-Za-z0-9_-]{43})$/.exec(location.hash)?.[1];
 const sessionChanges = typeof BroadcastChannel === "function" ? new BroadcastChannel("huping-admin-session") : null;
@@ -18,6 +23,9 @@ let admin = null;
 let setupMode = false;
 let editedId = null;
 let saving = false;
+let memberPage = 1;
+let listRequest = 0;
+let searchTimer;
 
 async function request(path, { method = "GET", body } = {}) {
   const response = await fetch("/api/admin" + path, {
@@ -42,6 +50,8 @@ function showPassword(shown) {
 visibility.addEventListener("click", () => showPassword(loginForm.elements.password.type === "password"));
 
 function showLogin(needsSetup, message = "") {
+  ++listRequest;
+  clearTimeout(searchTimer);
   admin = null;
   setupMode = Boolean(needsSetup && setupToken);
   loginTitle.textContent = setupMode ? "设置管理员账号" : "管理员登录";
@@ -61,6 +71,11 @@ function showLogin(needsSetup, message = "") {
   loginStatus.textContent = message;
   memberForm.reset();
   memberList.replaceChildren();
+  memberSearch.value = "";
+  listStatus.textContent = "";
+  memberPager.hidden = true;
+  memberList.removeAttribute("aria-busy");
+  memberPage = 1;
   workspace.hidden = true;
   controls.hidden = true;
   login.hidden = false;
@@ -85,12 +100,22 @@ function editMember(member) {
   memberStatus.textContent = "";
 }
 
-async function loadMembers() {
+async function loadMembers(page = memberPage) {
+  const sequence = ++listRequest;
+  listStatus.textContent = "正在查找账号…";
+  memberList.replaceChildren();
+  memberList.setAttribute("aria-busy", "true");
+  memberPager.hidden = true;
+  memberPrev.disabled = true;
+  memberNext.disabled = true;
   try {
-    const result = await request("/members");
-    const members = result.members.filter(member => member.role === "member");
-    listStatus.textContent = members.length ? members.length + " 个账号" : "还没有同事账号。";
-    memberList.replaceChildren(...members.map(member => {
+    const result = await request("/members?" + new URLSearchParams({ q: memberSearch.value.trim(), page }));
+    if (sequence !== listRequest || !admin) return;
+    memberPage = result.page;
+    listStatus.textContent = result.total
+      ? "共 " + result.total + " 个账号"
+      : memberSearch.value.trim() ? "没有找到匹配的账号。" : "还没有同事账号。";
+    memberList.replaceChildren(...result.members.map(member => {
       const row = document.createElement("div");
       const identity = document.createElement("span");
       const title = document.createElement("strong");
@@ -111,10 +136,27 @@ async function loadMembers() {
       row.append(identity, edit);
       return row;
     }));
+    memberList.scrollTop = 0;
+    memberPager.hidden = result.pages <= 1;
+    memberPageLabel.textContent = result.page + " / " + result.pages;
+    memberPrev.disabled = result.page <= 1;
+    memberNext.disabled = result.page >= result.pages;
   } catch (error) {
-    listStatus.textContent = error.message;
+    if (sequence === listRequest) listStatus.textContent = error.message;
+  } finally {
+    if (sequence === listRequest) memberList.removeAttribute("aria-busy");
   }
 }
+
+memberSearch.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  ++listRequest;
+  memberPrev.disabled = true;
+  memberNext.disabled = true;
+  searchTimer = setTimeout(() => loadMembers(1), 200);
+});
+memberPrev.addEventListener("click", () => loadMembers(memberPage - 1));
+memberNext.addEventListener("click", () => loadMembers(memberPage + 1));
 
 function showWorkspace(user) {
   admin = user;
@@ -126,6 +168,8 @@ function showWorkspace(user) {
   controls.hidden = false;
   document.title = "账号管理 · 同事互评";
   editMember();
+  memberPage = 1;
+  memberSearch.value = "";
   listStatus.textContent = "正在读取账号…";
   loadMembers();
 }

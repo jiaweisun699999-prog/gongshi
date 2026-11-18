@@ -78,6 +78,7 @@ function showRoom(id, transition = true) {
   }
 
   const room = rooms[id];
+  dialog.dataset.room = id;
   roomTitle.textContent = room.title;
   roomDescription.replaceChildren(...room.description.flatMap(([keyword, text]) => {
     const label = document.createElement("dt");
@@ -197,6 +198,12 @@ house.addEventListener("pointerleave", () => {
 
 const feedback = document.querySelector(".feedback");
 const peer = feedback.elements.peer;
+const peerSearch = feedback.querySelector("#peer-search");
+const peerPicker = feedback.querySelector(".peer-picker");
+const peerPopup = feedback.querySelector(".peer-popup");
+const peerResults = feedback.querySelector(".peer-results");
+const peerStatus = feedback.querySelector(".peer-status");
+const peerMore = feedback.querySelector(".peer-more");
 const note = feedback.elements.note;
 const feedbackStatus = feedback.querySelector(".feedback-status");
 const ratingFields = Array.from(feedback.querySelectorAll("[data-rating]"));
@@ -321,20 +328,16 @@ function showPeerReview() {
 let selectedPeer = peer.value;
 showPeerReview();
 retryAnalysis.addEventListener("click", () => analyzeSubmitted(peer.value));
-peer.addEventListener("change", () => {
-  selectedPeer = peer.value;
-  showPeerReview();
-});
 feedback.addEventListener("input", event => {
-  if (event.target === peer) return;
-  if (selectedPeer) edits.set(selectedPeer, readReview());
+  if (event.target === peerSearch) return;
+  if (peer.value && selectedPeer) edits.set(selectedPeer, readReview());
   feedbackStatus.textContent = "";
 });
 feedback.addEventListener("submit", async event => {
   event.preventDefault();
   if (!peer.value) {
     feedbackStatus.textContent = "请先选择一位要评价的同事。";
-    peer.focus();
+    peerSearch.focus();
     return;
   }
 
@@ -382,19 +385,159 @@ feedback.addEventListener("submit", async event => {
 });
 
 let peerRequest = 0;
+let chosenPeer = null;
+let peerSearchRequest = 0;
+let peerSearchTimer;
+let peerPage = 0;
+let peerQuery = "";
+let peerOptions = [];
+let activePeerOption = -1;
+let searchingPeers = false;
+
+function closePeerPicker() {
+  peerPopup.hidden = true;
+  peerSearch.setAttribute("aria-expanded", "false");
+  peerSearch.removeAttribute("aria-activedescendant");
+  activePeerOption = -1;
+}
+
+function choosePeer(member) {
+  ++peerRequest;
+  chosenPeer = member;
+  peer.value = String(member.id);
+  selectedPeer = peer.value;
+  peerSearch.value = member.name;
+  showPeerReview();
+  closePeerPicker();
+  peerSearch.focus();
+}
+
+function highlightPeer(index) {
+  activePeerOption = index;
+  const options = Array.from(peerResults.children);
+  options.forEach((option, i) => option.setAttribute("aria-selected", String(i === index)));
+  if (options[index]) {
+    peerSearch.setAttribute("aria-activedescendant", options[index].id);
+    options[index].scrollIntoView({ block: "nearest" });
+  }
+}
+
+async function searchPeers(query, page = 1) {
+  const sequence = ++peerSearchRequest;
+  searchingPeers = true;
+  peerMore.setAttribute("aria-disabled", "true");
+  peerStatus.textContent = "正在查找同事…";
+  if (page === 1) {
+    peerOptions = [];
+    peerResults.replaceChildren();
+    peerMore.hidden = true;
+    highlightPeer(-1);
+  }
+  try {
+    const data = await account.request("/api/members?" + new URLSearchParams({ q: query, page }));
+    if (sequence !== peerSearchRequest) return;
+    peerQuery = query;
+    peerPage = data.page;
+    peerOptions.push(...data.members);
+    peerResults.replaceChildren(...peerOptions.map(member => {
+      const option = document.createElement("div");
+      option.id = "peer-option-" + member.id;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", "false");
+      option.textContent = member.name;
+      option.addEventListener("pointerdown", event => event.preventDefault());
+      option.addEventListener("click", () => choosePeer(member));
+      return option;
+    }));
+    highlightPeer(-1);
+    peerStatus.textContent = data.total ? "找到 " + data.total + " 位同事，已显示 " + peerOptions.length + " 位。" : "没有找到这位同事。";
+    if (data.page >= data.pages && document.activeElement === peerMore) peerSearch.focus();
+    peerMore.hidden = data.page >= data.pages;
+  } catch (error) {
+    if (sequence === peerSearchRequest) {
+      peerStatus.textContent = error.message;
+      peerMore.hidden = true;
+    }
+  } finally {
+    if (sequence === peerSearchRequest) {
+      searchingPeers = false;
+      peerMore.setAttribute("aria-disabled", "false");
+    }
+  }
+}
+
+function openPeerPicker() {
+  if (!peerPopup.hidden) return;
+  peerPopup.hidden = false;
+  peerSearch.setAttribute("aria-expanded", "true");
+  const query = chosenPeer && peerSearch.value === chosenPeer.name ? "" : peerSearch.value.trim();
+  searchPeers(query);
+}
+
+peerSearch.addEventListener("focus", openPeerPicker);
+peerSearch.addEventListener("click", openPeerPicker);
+peerSearch.addEventListener("input", () => {
+  clearTimeout(peerSearchTimer);
+  ++peerSearchRequest;
+  peer.value = "";
+  peerPopup.hidden = false;
+  peerSearch.setAttribute("aria-expanded", "true");
+  peerResults.replaceChildren();
+  peerOptions = [];
+  highlightPeer(-1);
+  peerMore.hidden = true;
+  peerStatus.textContent = "正在查找同事…";
+  feedbackStatus.textContent = "";
+  peerSearchTimer = setTimeout(() => searchPeers(peerSearch.value.trim()), 200);
+});
+peerSearch.addEventListener("keydown", event => {
+  if (event.isComposing) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    openPeerPicker();
+    if (peerOptions.length) {
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      highlightPeer((activePeerOption + step + peerOptions.length) % peerOptions.length);
+    }
+  } else if (event.key === "Enter" && !peerPopup.hidden) {
+    event.preventDefault();
+    if (peerOptions[activePeerOption]) choosePeer(peerOptions[activePeerOption]);
+  } else if (event.key === "Escape" && !peerPopup.hidden) {
+    event.preventDefault();
+    closePeerPicker();
+  }
+});
+peerMore.addEventListener("click", () => { if (!searchingPeers) searchPeers(peerQuery, peerPage + 1); });
+peerPicker.addEventListener("focusout", event => {
+  if (!peerPicker.contains(event.relatedTarget)) closePeerPicker();
+});
+document.addEventListener("pointerdown", event => {
+  if (!peerPicker.contains(event.target)) closePeerPicker();
+});
+dialog.addEventListener("close", closePeerPicker);
 
 async function refreshPeers() {
   const sequence = ++peerRequest;
   try {
-    const [{ members }, result] = await Promise.all([account.request("/api/members"), account.request("/api/reviews/mine")]);
+    const result = await account.request("/api/reviews/mine");
     if (sequence !== peerRequest) return;
     reviews = result.reviews;
-    peer.replaceChildren(new Option("选择一位同事", ""), ...members.map(member => new Option(member.name, member.id)));
-    peer.options[0].disabled = true;
-    peer.value = members.some(member => String(member.id) === selectedPeer) ? selectedPeer : "";
-    selectedPeer = peer.value;
+    if (selectedPeer) {
+      try {
+        const { member } = await account.request("/api/members/" + selectedPeer);
+        if (sequence !== peerRequest) return;
+        chosenPeer = member;
+        peer.value = String(member.id);
+        peerSearch.value = member.name;
+      } catch {
+        if (sequence !== peerRequest) return;
+        chosenPeer = null;
+        peer.value = "";
+        peerSearch.value = "";
+        selectedPeer = "";
+      }
+    }
     showPeerReview();
-    if (!members.length) feedbackStatus.textContent = "暂无可评价的同事，请管理员先创建同事账号。";
   } catch (error) {
     if (sequence === peerRequest) feedbackStatus.textContent = error.message;
   }
@@ -408,6 +551,13 @@ const directoryAreas = [
   ["职业行为", "品格 · 职业行为"],
 ];
 let directoryRequest = 0;
+const directorySearch = dialog.querySelector(".directory-search input");
+const directoryPager = dialog.querySelector(".directory-pager");
+const directoryPrev = dialog.querySelector(".directory-prev");
+const directoryNext = dialog.querySelector(".directory-next");
+const directoryPageLabel = dialog.querySelector(".directory-page");
+let directoryPage = 1;
+let directoryTimer;
 
 function colleagueDetails(member) {
   let card = member;
@@ -498,20 +648,43 @@ function colleagueDetails(member) {
   return entry;
 }
 
-async function refreshDirectory() {
+async function refreshDirectory(page = 1) {
   const sequence = ++directoryRequest;
   colleaguesStatus.textContent = "正在读取同事汇总…";
+  colleagues.replaceChildren();
+  colleagues.setAttribute("aria-busy", "true");
+  directoryPrev.disabled = true;
+  directoryNext.disabled = true;
+  directoryPager.hidden = true;
   try {
-    const { members } = await account.request("/api/directory");
+    const data = await account.request("/api/directory?" + new URLSearchParams({ q: directorySearch.value.trim(), page }));
     if (sequence !== directoryRequest) return;
-    colleaguesStatus.textContent = members.length
-      ? "展开同事卡片，查看协作汇总。好评率按已确认的赞和踩计算。"
-      : "暂无同事账号。";
-    colleagues.replaceChildren(...members.map(colleagueDetails));
+    directoryPage = data.page;
+    colleaguesStatus.textContent = data.total
+      ? "共 " + data.total + " 位同事 · 好评率按确认的赞踩计算"
+      : directorySearch.value.trim() ? "没有找到这位同事，换个名字试试。" : "暂无同事账号。";
+    colleagues.replaceChildren(...data.members.map(colleagueDetails));
+    colleagues.scrollTop = 0;
+    directoryPager.hidden = data.pages <= 1;
+    directoryPageLabel.textContent = data.page + " / " + data.pages;
+    directoryPrev.disabled = data.page <= 1;
+    directoryNext.disabled = data.page >= data.pages;
   } catch (error) {
     if (sequence === directoryRequest) colleaguesStatus.textContent = error.message;
+  } finally {
+    if (sequence === directoryRequest) colleagues.removeAttribute("aria-busy");
   }
 }
+
+directorySearch.addEventListener("input", () => {
+  clearTimeout(directoryTimer);
+  ++directoryRequest;
+  directoryPrev.disabled = true;
+  directoryNext.disabled = true;
+  directoryTimer = setTimeout(() => refreshDirectory(), 200);
+});
+directoryPrev.addEventListener("click", () => refreshDirectory(directoryPage - 1));
+directoryNext.addEventListener("click", () => refreshDirectory(directoryPage + 1));
 
 const reportStatus = dialog.querySelector(".report-status");
 const reportButton = dialog.querySelector(".report-generate");

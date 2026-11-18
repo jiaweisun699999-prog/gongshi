@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import {
-  ApiError, addMember, adminSessionLifetime, allUsers, authenticate, canLogin, colleagueCard, createAdmin, createSession, endSession,
-  issueSetupToken, members, minimumReportSources, needsSetup, outgoing, profileAreas, reportSnapshot,
+  ApiError, addMember, adminMemberPage, adminSessionLifetime, authenticate, canLogin, colleagueCard, createAdmin, createSession, endSession,
+  issueSetupToken, memberPage, minimumReportSources, needsSetup, outgoing, profileAreas, reportSnapshot,
   reviewEntry, reviewText, saveReport, saveReview, saveReviewAnalysis, sessionLifetime, sessionUser, updateMember,
 } from "./data.mjs";
 
@@ -299,7 +299,10 @@ async function adminApi(request, response, path) {
   if (!admin) throw new ApiError(401, "请先登录管理员账号。");
 
   if (path === "/api/admin/members") {
-    if (method === "GET") return json(response, 200, { members: allUsers() });
+    if (method === "GET") {
+      const query = new URL(request.url, "http://127.0.0.1").searchParams;
+      return json(response, 200, adminMemberPage(query.get("q"), query.get("page")));
+    }
     if (method === "POST") return json(response, 201, { user: addMember(await readJson(request)) });
   }
   const accountRoute = path.match(/^\/api\/admin\/members\/(\d+)$/);
@@ -330,9 +333,16 @@ async function api(request, response, path) {
   }
   if (!user) throw new ApiError(401, "请先登录。");
 
-  if (method === "GET" && path === "/api/members") return json(response, 200, { members: members(user.id) });
-  if (method === "GET" && path === "/api/directory") {
-    return json(response, 200, { members: members(user.id).map(member => colleagueCard(user.id, member.id)) });
+  if (method === "GET" && ["/api/members", "/api/directory"].includes(path)) {
+    const query = new URL(request.url, "http://127.0.0.1").searchParams;
+    const result = memberPage(user.id, query.get("q"), query.get("page"));
+    if (path === "/api/directory") result.members = result.members.map(member => colleagueCard(user.id, member.id));
+    return json(response, 200, result);
+  }
+  const memberRoute = path.match(/^\/api\/members\/(\d+)$/);
+  if (method === "GET" && memberRoute) {
+    const card = colleagueCard(user.id, Number(memberRoute[1]));
+    return json(response, 200, { member: { id: card.id, name: card.name } });
   }
   const profileRoute = path.match(/^\/api\/directory\/(\d+)\/profile$/);
   if (method === "POST" && profileRoute) {

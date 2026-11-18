@@ -57,10 +57,16 @@
               <p class="account-status" role="status"></p>
             </form>
           </section>
-          <section aria-labelledby="member-list-title">
+          <section class="admin-members" aria-labelledby="member-list-title">
             <h2 id="member-list-title">同事账号</h2>
+            <label class="member-search">查找账号<input type="search" maxlength="80" placeholder="搜索姓名或登录名" autocomplete="off"></label>
             <p class="member-list-status" role="status"></p>
-            <div class="member-list"></div>
+            <div class="member-list" role="region" aria-label="同事账号列表" tabindex="0"></div>
+            <nav class="member-pager" aria-label="账号列表分页" hidden>
+              <button class="glass scene-action member-prev" type="button">上一页</button>
+              <span class="member-page"></span>
+              <button class="glass scene-action member-next" type="button">下一页</button>
+            </nav>
           </section>
         </div>
       </section>

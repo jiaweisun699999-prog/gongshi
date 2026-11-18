@@ -168,11 +168,37 @@ export function endSession(token, scope = "member") {
 }
 
 export function members(currentId) {
-  return db.prepare("SELECT id, display_name AS name FROM users WHERE active = 1 AND id <> ? ORDER BY id").all(currentId);
+  return db.prepare("SELECT id, display_name AS name FROM users WHERE active = 1 AND role = 'member' AND id <> ? ORDER BY id").all(currentId);
+}
+
+export function memberPage(currentId, search, requestedPage) {
+  const query = String(search ?? "").trim().slice(0, 80).toLowerCase();
+  const pageSize = 20;
+  const filter = "active = 1 AND role = 'member' AND id <> ? AND (instr(lower(display_name), ?) > 0 OR instr(username, ?) > 0)";
+  const total = db.prepare("SELECT count(*) AS total FROM users WHERE " + filter).get(currentId, query, query).total;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const parsed = Number(requestedPage);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, pages) : 1;
+  const rows = db.prepare("SELECT id, display_name AS name FROM users WHERE " + filter + " ORDER BY id LIMIT ? OFFSET ?")
+    .all(currentId, query, query, pageSize, (page - 1) * pageSize);
+  return { members: rows, total, page, pageSize, pages };
 }
 
 export function allUsers() {
   return db.prepare("SELECT id, username, display_name, role, active FROM users ORDER BY id").all().map(userObject);
+}
+
+export function adminMemberPage(search, requestedPage) {
+  const query = String(search ?? "").trim().slice(0, 80).toLowerCase();
+  const pageSize = 20;
+  const filter = "role = 'member' AND (instr(lower(display_name), ?) > 0 OR instr(username, ?) > 0)";
+  const total = db.prepare("SELECT count(*) AS total FROM users WHERE " + filter).get(query, query).total;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const parsed = Number(requestedPage);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, pages) : 1;
+  const rows = db.prepare("SELECT id, username, display_name, role, active FROM users WHERE " + filter + " ORDER BY id LIMIT ? OFFSET ?")
+    .all(query, query, pageSize, (page - 1) * pageSize);
+  return { members: rows.map(userObject), total, page, pageSize, pages };
 }
 
 export const addMember = input => insertUser(input, "member");
@@ -221,18 +247,18 @@ export function reviewText(review) {
 }
 
 export function reviewEntry(author, recipient) {
-  const row = db.prepare("SELECT draft, submitted FROM reviews WHERE author = ? AND recipient = ?").get(author, recipient);
+  const row = db.prepare("SELECT draft, submitted FROM reviews JOIN users ON users.id = reviews.recipient WHERE author = ? AND recipient = ? AND users.role = 'member'").get(author, recipient);
   return { draft: parse(row?.draft), submitted: parse(row?.submitted) };
 }
 
 export function outgoing(author) {
-  const rows = db.prepare("SELECT recipient, draft, submitted FROM reviews WHERE author = ?").all(author);
+  const rows = db.prepare("SELECT recipient, draft, submitted FROM reviews JOIN users ON users.id = reviews.recipient WHERE author = ? AND users.role = 'member'").all(author);
   return Object.fromEntries(rows.map(row => [row.recipient, { draft: parse(row.draft), submitted: parse(row.submitted) }]));
 }
 
 export function saveReview(author, recipient, input) {
   const target = getUser(recipient);
-  if (!target?.active || author === recipient) throw new ApiError(404, "请选择一位有效的同事。");
+  if (!target?.active || target.role !== "member" || author === recipient) throw new ApiError(404, "请选择一位有效的同事。");
   const note = typeof input?.note === "string" ? input.note.trim() : "";
   if (note.length > 1200 || !["draft", "submit"].includes(input?.kind)) throw new ApiError(400, "反馈内容格式不正确。");
   const draft = input.kind === "draft";
@@ -318,7 +344,7 @@ export function reportSnapshot(recipient) {
 
 export function colleagueCard(viewer, recipient) {
   const member = getUser(recipient);
-  if (!member?.active || viewer === recipient) throw new ApiError(404, "未找到可查看的同事。");
+  if (!member?.active || member.role !== "member" || viewer === recipient) throw new ApiError(404, "未找到可查看的同事。");
   const { count, report, stale, approval } = reportSnapshot(recipient).overview;
   const profileReady = !stale && Array.isArray(report?.profile);
   return {
