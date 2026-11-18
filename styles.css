@@ -56,20 +56,21 @@ button:disabled { cursor: wait; opacity: .65; }
 .scenery { z-index: -1; overflow: hidden; }
 
 .scene {
+  visibility: hidden;
   opacity: 0;
-  transform: perspective(1200px) translateZ(-32px) scale(1.025);
-  transition: opacity 900ms ease, transform 1600ms var(--ease-glass);
+  transition: none;
 }
 
-.scene.is-current { z-index: 1; opacity: 1; transform: perspective(1200px) translateZ(0); }
-.scene.is-outgoing { opacity: 1; transition: transform 1600ms var(--ease-glass); }
+.scene.is-current { z-index: 1; visibility: visible; opacity: 1; }
+.scene.is-entering { z-index: 2; visibility: visible; opacity: 0; transition: opacity 620ms ease; will-change: opacity; }
+.scene.is-entering.is-revealed { opacity: 1; }
 .house:not([data-session="authenticated"]) :is(.room-nav, .room-stage, .account-dropdown) { display: none; }
 .house:not([data-session="authenticated"]) .scene:not([data-scene="living"]) { opacity: 0; }
 .house:not([data-session="authenticated"]) .scene[data-scene="living"] { opacity: 1; transform: none; }
-.scene[data-scene="living"] { --photo: url("assets/living.webp"); --focal-x: 55%; }
-.scene[data-scene="bedroom"] { --photo: url("assets/bedroom.webp"); --focal-x: 55%; }
-.scene[data-scene="meeting"] { --photo: url("assets/meeting.webp"); --focal-x: 54%; }
-.scene[data-scene="yard"] { --photo: url("assets/yard.webp"); --focal-x: 54%; }
+.scene[data-scene="living"] { --photo: url("assets/living.webp?v=8c5c45830544"); --focal-x: 55%; }
+.scene[data-scene="bedroom"] { --photo: url("assets/bedroom.webp?v=36a58fe8937e"); --focal-x: 55%; }
+.scene[data-scene="meeting"] { --photo: url("assets/meeting.webp?v=fc25db140a7b"); --focal-x: 54%; }
+.scene[data-scene="yard"] { --photo: url("assets/yard.webp?v=cf7ecffe836d"); --focal-x: 54%; }
 
 .scene-image {
   background-image: var(--photo);

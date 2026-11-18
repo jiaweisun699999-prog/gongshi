@@ -45,26 +45,81 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const finePointer = matchMedia("(hover: hover) and (pointer: fine)");
 
 let activeRoom = "living";
+let requestedRoom = activeRoom;
+let roomRequest = 0;
+let currentScene = scenes.find(scene => scene.classList.contains("is-current"));
 let sceneTimer;
+let finishScene;
+const scenePhotos = new Map();
 
-function showRoom(id, transition = true) {
-  if (!Object.hasOwn(rooms, id) || id === activeRoom) return;
+function prepareScene(scene) {
+  const id = scene.dataset.scene;
+  if (!scenePhotos.has(id)) {
+    const photo = new Image();
+    const source = getComputedStyle(scene).getPropertyValue("--photo").trim().match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+    const ready = new Promise((resolve, reject) => {
+      photo.onload = () => photo.decode().then(resolve, reject);
+      photo.onerror = () => reject(new Error("Scene image unavailable"));
+      photo.src = source || "";
+    }).catch(error => { scenePhotos.delete(id); throw error; });
+    scenePhotos.set(id, { photo, ready });
+  }
+  return scenePhotos.get(id).ready;
+}
 
-  const previousRoom = activeRoom;
+function revealScene(next, animate) {
+  // Complete an interrupted fade first: the base always remains fully opaque.
+  finishScene?.();
+  if (next === currentScene) return;
+  const previous = currentScene;
+  if (!animate) {
+    previous.classList.remove("is-current");
+    next.classList.add("is-current");
+    currentScene = next;
+    return;
+  }
+  const finish = () => {
+    clearTimeout(sceneTimer);
+    next.removeEventListener("transitionend", ended);
+    previous.classList.remove("is-current");
+    next.classList.remove("is-entering", "is-revealed");
+    next.classList.add("is-current");
+    currentScene = next;
+    finishScene = null;
+  };
+  const ended = event => {
+    if (event.target === next && event.propertyName === "opacity") finish();
+  };
+  finishScene = finish;
+  next.classList.add("is-entering");
+  next.addEventListener("transitionend", ended);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (finishScene !== finish) return;
+    next.classList.add("is-revealed");
+    sceneTimer = setTimeout(finish, 750);
+  }));
+}
+
+async function showRoom(id, transition = true) {
+  if (!Object.hasOwn(rooms, id) || id === requestedRoom) return;
+  requestedRoom = id;
+  const sequence = ++roomRequest;
+  const next = scenes.find(scene => scene.dataset.scene === id);
+  try {
+    await prepareScene(next);
+  } catch {
+    if (sequence === roomRequest) {
+      requestedRoom = activeRoom;
+      status.textContent = "场景图片暂未载入，请再点一次房间重试。";
+    }
+    return;
+  }
+  if (sequence !== roomRequest) return;
+
   activeRoom = id;
   house.dataset.room = id;
-  clearTimeout(sceneTimer);
-
-  const animateScene = transition && !reduceMotion.matches;
-  for (const scene of scenes) {
-    scene.classList.toggle("is-current", scene.dataset.scene === id);
-    scene.classList.toggle("is-outgoing", animateScene && scene.dataset.scene === previousRoom);
-  }
-  if (animateScene) {
-    sceneTimer = setTimeout(() => {
-      scenes.find(scene => scene.dataset.scene === previousRoom).classList.remove("is-outgoing");
-    }, 925);
-  }
+  status.textContent = "";
+  revealScene(next, transition && !reduceMotion.matches);
   for (const link of navigation) {
     if (link.dataset.go === id) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -118,6 +173,11 @@ for (const link of document.querySelectorAll("[data-go]")) {
 window.addEventListener("hashchange", () => showRoomFromHash());
 window.addEventListener("popstate", () => showRoomFromHash());
 showRoomFromHash(false);
+
+// Warm the other rooms without delaying the living room or the login screen.
+const warmScenes = () => Promise.allSettled(scenes.map(prepareScene));
+if ("requestIdleCallback" in window) requestIdleCallback(warmScenes, { timeout: 1500 });
+else setTimeout(warmScenes, 300);
 
 roomAction.addEventListener("click", openDialog);
 closeDialog.addEventListener("click", () => dialog.close());

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import {
   ApiError, addMember, adminMemberPage, adminSessionLifetime, authenticate, canLogin, colleagueCard, createAdmin, createSession, endSession,
@@ -404,12 +405,23 @@ if (process.argv.includes("--setup")) {
   response.setHeader("Referrer-Policy", "no-referrer");
   if (!hosts.has(request.headers.host)) return json(response, 403, { error: "请使用配置的站点地址访问。" });
   try {
-    const path = new URL(request.url, "http://127.0.0.1").pathname;
+    const url = new URL(request.url, "http://127.0.0.1");
+    const path = url.pathname;
     if (path.startsWith("/api/")) return await api(request, response, path);
     const file = publicFiles.get(path);
     if (!file || !["GET", "HEAD"].includes(request.method)) return json(response, 404, { error: "未找到页面。" });
     const body = await readFile(new URL(file[0], import.meta.url));
-    response.writeHead(200, { "Content-Type": file[1], "Content-Length": body.length, "Cache-Control": "no-cache" });
+    const digest = createHash("sha256").update(body).digest("hex");
+    const etag = '"' + digest + '"';
+    const image = file[1].startsWith("image/");
+    const versioned = image && url.searchParams.get("v") === digest.slice(0, 12);
+    const cacheControl = image ? versioned ? "public, max-age=31536000, immutable" : "public, max-age=3600" : "no-cache";
+    const validators = (request.headers["if-none-match"] || "").split(",").map(value => value.trim().replace(/^W\//, ""));
+    if (validators.includes(etag) || validators.includes("*")) {
+      response.writeHead(304, { ETag: etag, "Cache-Control": cacheControl });
+      return response.end();
+    }
+    response.writeHead(200, { "Content-Type": file[1], "Content-Length": body.length, "Cache-Control": cacheControl, ETag: etag });
     response.end(request.method === "HEAD" ? undefined : body);
   } catch (error) {
     if (!response.headersSent) {
